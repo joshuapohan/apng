@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"io/ioutil"
 	"log"
+	"apng"
 )
 
 func logError(e error){
@@ -15,7 +16,7 @@ func logError(e error){
 	}
 }
 
-func readInputFiles(ap *apng){
+func readInputFiles(ap *apng.APNGModel){
 	files, err := ioutil.ReadDir("./input")
 	logError(err)
 
@@ -33,13 +34,13 @@ func readInputFiles(ap *apng){
 		}
 
 		
-		curPngChunk := getPNGChunk(curImgBuffer)
-		(*ap).chunks = append((*ap).chunks, curPngChunk)
+		//curPngChunk := apng.GetPNGChunk(curImgBuffer)
+		//(*ap).chunks = append((*ap).chunks, curPngChunk)
 	}
 }
 
 func ProcessInputFiles(){
-	var pngs apng
+	var pngs apng.APNGModel
 	readInputFiles(&pngs)
 	pngs.LogPNGChunks()
 }
