@@ -1,4 +1,4 @@
-package main
+package apng
 
 import (
 	"fmt"
@@ -8,20 +8,26 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"image"
+	"image/png"
 )
+
+
+/******************************************************
+					apng structure
+*******************************************************/
 
 type pngData struct{
 	ihdr []byte
 	idat []byte
 }
 
-type apng struct{
+type APNGModel struct{
 	images []image.Image
 	chunks []pngData
 	delays []int
 }
 
-func (ap apng) PrintPNGChunks(){
+func (ap APNGModel) PrintPNGChunks(){
 	for _, png := range ap.chunks  {
 		fmt.Println("IHDR")
 		fmt.Println(png.ihdr)
@@ -30,7 +36,7 @@ func (ap apng) PrintPNGChunks(){
 	}	
 }
 
-func (ap apng) LogPNGChunks(){
+func (ap APNGModel) LogPNGChunks(){
 
 	f, _ := os.Create("log.txt")
 
@@ -44,7 +50,24 @@ func (ap apng) LogPNGChunks(){
 	}	
 }
 
-func getPNGChunk(imgBuffer *bytes.Buffer) (pngData){
+func (ap *APNGModel) AppendImage(r io.Reader){
+	curPng, err := png.Decode(r)
+	if err != nil{
+		fmt.Println(err)
+		return
+	}
+	ap.images = append(ap.images, curPng)
+}
+
+func (ap *APNGModel) AppendDelay(delay int){
+	ap.delays = append(ap.delays, delay)
+}
+
+/******************************************************
+				png chunk manipulation
+*******************************************************/
+
+func GetPNGChunk(imgBuffer *bytes.Buffer) (pngData){
 	chunk := pngData{}
 
 	//skip png header
