@@ -18,12 +18,16 @@ func logError(e error){
 
 func readInputFiles(ap *apng.APNGModel){
 	files, err := ioutil.ReadDir("./input")
+
 	logError(err)
+	test := &apng.APNGModel{}
 
 	for _, fileInfo := range files{
 		f, err := os.Open("./input/" + fileInfo.Name())
 		logError(err)
 		curPng, err := png.Decode(f)
+		test.AppendImage(f)
+
 		logError(err)
 
 		curImgBuffer := new(bytes.Buffer)
@@ -34,15 +38,36 @@ func readInputFiles(ap *apng.APNGModel){
 		}
 
 		
+
+		
 		//curPngChunk := apng.GetPNGChunk(curImgBuffer)
 		//(*ap).chunks = append((*ap).chunks, curPngChunk)
 	}
 }
 
+func readInputFiles2(){
+	files, err := ioutil.ReadDir("../input")
+
+	logError(err)
+	test := &apng.APNGModel{}
+
+	for _, fileInfo := range files{
+		f, err := os.Open("../input/" + fileInfo.Name())
+		logError(err)
+		test.AppendImage(f)
+		logError(err)
+	}
+	test.Encode()
+	test.SavePNGData()
+}
+
 func ProcessInputFiles(){
-	var pngs apng.APNGModel
-	readInputFiles(&pngs)
-	pngs.LogPNGChunks()
+	//var pngs apng.APNGModel
+	//readInputFiles(&pngs)
+	//pngs.LogPNGChunks()
+	
+	fmt.Println("Writing input files")
+	readInputFiles2()
 }
 
 func main(){
