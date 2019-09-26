@@ -13,7 +13,7 @@ import (
 
 
 /******************************************************
-*    apng structure
+					apng structure
 *******************************************************/
 
 type pngData struct{
@@ -121,12 +121,10 @@ func (ap *APNGModel) writePNGHeader(){
 }
 
 func (ap *APNGModel) WriteIHDR(chunk pngData){
-	ap.writeChunk(chunk.ihdr, "acTL", &ap.buffer)
+	ap.writeChunk(chunk.ihdr, "IHDR", &ap.buffer)
 }
 
 func (ap *APNGModel) WriteacTL(img image.Image){
-	
-	fmt.Println("Writing actl")
 	tmpBuffer := []byte{}
 
 	nbFrames := make([]byte, 4)
