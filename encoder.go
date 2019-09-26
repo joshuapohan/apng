@@ -13,7 +13,7 @@ import (
 
 
 /******************************************************
-					apng structure
+*    apng structure
 *******************************************************/
 
 type pngData struct{
@@ -25,6 +25,7 @@ type APNGModel struct{
 	images []image.Image
 	chunks []pngData
 	delays []int
+	buffer []byte
 }
 
 func (ap APNGModel) PrintPNGChunks(){
@@ -61,6 +62,134 @@ func (ap *APNGModel) AppendImage(r io.Reader){
 
 func (ap *APNGModel) AppendDelay(delay int){
 	ap.delays = append(ap.delays, delay)
+}
+
+func (ap *APNGModel) GetPNGChunk(imgBuffer *bytes.Buffer) (pngData){
+	chunk := pngData{}
+
+	//skip png header
+	imgBuffer.Next(8)
+
+	for {
+		tmp := make([]byte, 8)
+		_, err := io.ReadFull(imgBuffer, tmp[:8])
+		if err != nil{
+			fmt.Println("Error : ", err)
+			break
+		}
+
+		length := binary.BigEndian.Uint32(tmp[:4])
+		
+
+		tmpVal := make([]byte, length)
+		io.ReadFull(imgBuffer, tmpVal)
+
+		switch string(tmp[4:8]){
+		case "IHDR":
+			chunk.ihdr = make([]byte, length)
+			copy(chunk.ihdr, tmpVal)
+		case "IDAT":
+			chunk.idat = append(chunk.idat, tmpVal...)
+			tmpVal = nil
+		default:
+			fmt.Println("Found ", string(tmp[4:8]))
+		}
+
+		//skip crc
+		imgBuffer.Next(4)
+	}
+
+	return chunk
+}
+
+func (ap *APNGModel) writeChunk(chunk []byte, header string, toChunk *[]byte){
+	chunkLe := make([]byte, 4)
+	chunkTagVal := make([]byte,0, len(chunk) + 8)
+
+	writeUint32(chunkLe, uint32(len(chunk)))
+
+	chunkTagVal = append(chunkTagVal, []byte(header)...)
+	chunkTagVal = append(chunkTagVal, chunk...)
+
+	writeCRC32(&chunkTagVal)
+	*toChunk = append(*toChunk, chunkLe...)
+	*toChunk = append(*toChunk, chunkTagVal...)
+}
+
+func (ap *APNGModel) writePNGHeader(){
+	ap.buffer = append(ap.buffer, 0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
+}
+
+func (ap *APNGModel) WriteIHDR(chunk pngData){
+	ap.writeChunk(chunk.ihdr, "acTL", &ap.buffer)
+}
+
+func (ap *APNGModel) WriteacTL(img image.Image){
+	
+	fmt.Println("Writing actl")
+	tmpBuffer := []byte{}
+
+	nbFrames := make([]byte, 4)
+	writeUint32(nbFrames, uint32(len(ap.images)))
+	tmpBuffer = append(tmpBuffer, nbFrames...)
+
+	nbLoop := make([]byte, 4)
+	writeUint32(nbLoop, 0)
+	tmpBuffer = append(tmpBuffer, nbLoop...)
+
+	ap.writeChunk(tmpBuffer, "acTL", &ap.buffer)
+}
+
+func (ap *APNGModel) WritefcTL(seqNb int, img image.Image){
+	ap.buffer = append(ap.buffer,[]byte("fcTL")...)
+}
+
+func (ap *APNGModel) WriteIDAT(chunk pngData){
+	ap.writeChunk(chunk.idat, "IDAT", &ap.buffer)
+}
+
+func (ap *APNGModel) WritefDAT(seqNb int, chunk pngData){
+	ap.writeChunk(chunk.idat, "fDAT", &ap.buffer)
+}
+
+func (ap *APNGModel) WriteIENDHeader(){
+	ap.buffer = append(ap.buffer,[]byte("IEND")...)
+}
+
+func (ap *APNGModel) Encode(){
+	seqNb := 0
+	for index, img := range ap.images{
+		curImgBuffer := new(bytes.Buffer)
+		if err := png.Encode(curImgBuffer, img); err != nil{
+			fmt.Println(err)
+			return
+		}
+		curPngChunk := ap.GetPNGChunk(curImgBuffer)
+		if(index == 0){
+			ap.writePNGHeader()
+			ap.WriteIHDR(curPngChunk)
+			ap.WriteacTL(img)
+			ap.WritefcTL(seqNb, img)
+			seqNb++
+			ap.WriteIDAT(curPngChunk)
+		}else{
+			ap.WritefcTL(seqNb, img)
+			seqNb++
+			ap.WritefDAT(seqNb, curPngChunk)
+			seqNb++
+		}
+	}
+	ap.WriteIENDHeader()
+}
+
+func (ap *APNGModel) SavePNGData(){
+
+	f, _ := os.Create("logAPNG.txt")
+
+	_, err := f.Write(ap.buffer)
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 /******************************************************
