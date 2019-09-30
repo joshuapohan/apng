@@ -79,8 +79,7 @@ func (ap *APNGModel) GetPNGChunk(imgBuffer *bytes.Buffer) (pngData){
 		}
 
 		length := binary.BigEndian.Uint32(tmp[:4])
-		
-
+	
 		tmpVal := make([]byte, length)
 		io.ReadFull(imgBuffer, tmpVal)
 
@@ -102,7 +101,7 @@ func (ap *APNGModel) GetPNGChunk(imgBuffer *bytes.Buffer) (pngData){
 	return chunk
 }
 
-func (ap *APNGModel) writeChunk(chunk []byte, header string, toChunk *[]byte){
+func (ap *APNGModel) appendChunk(chunk []byte, header string, toChunk *[]byte){
 	chunkLe := make([]byte, 4)
 	chunkTagVal := make([]byte,0, len(chunk) + 8)
 
@@ -120,27 +119,31 @@ func (ap *APNGModel) writePNGHeader(){
 	ap.buffer = append(ap.buffer, 0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
 }
 
-func (ap *APNGModel) WriteIHDR(chunk pngData){
-	ap.writeChunk(chunk.ihdr, "IHDR", &ap.buffer)
+func (ap *APNGModel) AppendIHDR(chunk pngData){
+	ap.appendChunk(chunk.ihdr, "IHDR", &ap.buffer)
 }
 
-func (ap *APNGModel) WriteacTL(img image.Image){
+func (ap *APNGModel) AppendacTL(img image.Image){
 	tmpBuffer := []byte{}
 
+	//number of frames in the animation
 	nbFrames := make([]byte, 4)
 	writeUint32(nbFrames, uint32(len(ap.images)))
 	tmpBuffer = append(tmpBuffer, nbFrames...)
 
+	//how many times the animation is looped (0 means it'll loop infinitely)
 	nbLoop := make([]byte, 4)
 	writeUint32(nbLoop, 0)
 	tmpBuffer = append(tmpBuffer, nbLoop...)
 
-	ap.writeChunk(tmpBuffer, "acTL", &ap.buffer)
+	ap.appendChunk(tmpBuffer, "acTL", &ap.buffer)
 }
 
-func (ap *APNGModel) WritefcTL(seqNb int, img image.Image, delay int){
+func (ap *APNGModel) AppendfcTL(seqNb *int, img image.Image, delay int){
+
+	//sequence value
 	fcTLValue := make([]byte, 4)
-	writeUint32(fcTLValue, uint32(seqNb))
+	writeUint32(fcTLValue, uint32(*seqNb))
 	//width
 	appendUint32(&fcTLValue, uint32(img.Bounds().Max.X - img.Bounds().Min.X))
 	//height
@@ -158,23 +161,33 @@ func (ap *APNGModel) WritefcTL(seqNb int, img image.Image, delay int){
 	//blend_op
 	appendUint8(&fcTLValue, uint8(0))
 	
-	ap.writeChunk(fcTLValue, "fcTL", &ap.buffer)
+	ap.appendChunk(fcTLValue, "fcTL", &ap.buffer)
+
+	//increment sequence number for animation chunk
+	*seqNb++
 }
 
-func (ap *APNGModel) WriteIDAT(chunk pngData){
-	ap.writeChunk(chunk.idat, "IDAT", &ap.buffer)
+func (ap *APNGModel) AppendIDAT(chunk pngData){
+	ap.appendChunk(chunk.idat, "IDAT", &ap.buffer)
 }
 
-func (ap *APNGModel) WritefDAT(seqNb int, chunk pngData){
+func (ap *APNGModel) AppendfDAT(seqNb *int, chunk pngData){
+
+	//sequence value
 	fDatValue := make([]byte, 4)
-	writeUint32(fDatValue, uint32(seqNb))
+	writeUint32(fDatValue, uint32(*seqNb))
+
+	//fdat chunk
 	fDatValue = append(fDatValue, chunk.idat...)
-	ap.writeChunk(fDatValue, "fdAT", &ap.buffer)
+	ap.appendChunk(fDatValue, "fdAT", &ap.buffer)
+
+	//increment sequence number for animation chunk
+	*seqNb++
 }
 
 func (ap *APNGModel) WriteIENDHeader(){
 	empty := make([]byte,0)
-	ap.writeChunk(empty, "IEND", &ap.buffer)
+	ap.appendChunk(empty, "IEND", &ap.buffer)
 }
 
 func (ap *APNGModel) Encode(){
@@ -188,16 +201,13 @@ func (ap *APNGModel) Encode(){
 		curPngChunk := ap.GetPNGChunk(curImgBuffer)
 		if(index == 0){
 			ap.writePNGHeader()
-			ap.WriteIHDR(curPngChunk)
-			ap.WriteacTL(img)
-			ap.WritefcTL(seqNb, img, ap.delays[index])
-			seqNb++
-			ap.WriteIDAT(curPngChunk)
+			ap.AppendIHDR(curPngChunk)
+			ap.AppendacTL(img)
+			ap.AppendfcTL(&seqNb, img, ap.delays[index])
+			ap.AppendIDAT(curPngChunk)
 		}else{
-			ap.WritefcTL(seqNb, img, ap.delays[index])
-			seqNb++
-			ap.WritefDAT(seqNb, curPngChunk)
-			seqNb++
+			ap.AppendfcTL(&seqNb, img, ap.delays[index])
+			ap.AppendfDAT(&seqNb, curPngChunk)
 		}
 	}
 	ap.WriteIENDHeader()
@@ -250,14 +260,10 @@ func writeUint32(b []uint8, u uint32) {
 	b[3] = uint8(u)
 }
 
-func writePNGHeader(b *[]uint8){
-	*b = append(*b, 0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
-}
-
 func writeCRC32(data *[]byte){
-		crcBytes := make([]byte, 4)
-		crc := crc32.NewIEEE()
-		crc.Write(*data)
-		writeUint32(crcBytes, crc.Sum32())
-		*data = append(*data, crcBytes...)
+	crcBytes := make([]byte, 4)
+	crc := crc32.NewIEEE()
+	crc.Write(*data)
+	writeUint32(crcBytes, crc.Sum32())
+	*data = append(*data, crcBytes...)
 }
