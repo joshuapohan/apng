@@ -9,11 +9,32 @@ import (
 	"hash/crc32"
 	"image"
 	"image/png"
+	"errors"
 )
 
 
 /******************************************************
-                   apng structure
+				   apng structure
+	
+	Author : Joshua Pohan
+
+	Example of usage :
+
+	files, err := ioutil.ReadDir("./input")
+
+	logError(err)
+	test := &apng.APNGModel{}
+
+	for _, fileInfo := range files{
+		f, err := os.Open("./input/" + fileInfo.Name())
+		logError(err)
+		test.AppendImage(f)
+		test.AppendDelay(64)
+		logError(err)
+	}
+	test.Encode()
+	test.SavePNGData("result.png")
+
 *******************************************************/
 
 type pngData struct{
@@ -37,6 +58,7 @@ func (ap APNGModel) PrintPNGChunks(){
 	}	
 }
 
+
 func (ap APNGModel) LogPNGChunks(){
 
 	f, _ := os.Create("log.txt")
@@ -51,20 +73,39 @@ func (ap APNGModel) LogPNGChunks(){
 	}	
 }
 
-func (ap *APNGModel) AppendImage(r io.Reader){
-	curPng, err := png.Decode(r)
-	if err != nil{
-		fmt.Println(err)
-		return
-	}
-	ap.images = append(ap.images, curPng)
+
+/******************************************************
+	AppendImage
+
+	Adds file image to the apng struct, uses png package
+	to decode the image
+
+	param r The file image to add to the apng model
+	return error
+*******************************************************/
+func (ap *APNGModel) AppendImage(r io.Reader) error {
+	if curPng, err := png.Decode(r); err != nil{
+		return err
+	} else{
+		ap.images = append(ap.images, curPng)
+		return nil	
+	}	
 }
 
+
+/******************************************************
+	AppendDelay
+
+	Adds delay in milliseconds between each image
+
+	param delay The time delay(ms) between each images
+*******************************************************/
 func (ap *APNGModel) AppendDelay(delay int){
 	ap.delays = append(ap.delays, delay)
 }
 
-func (ap *APNGModel) GetPNGChunk(imgBuffer *bytes.Buffer) (pngData){
+
+func (ap *APNGModel) getPNGChunk(imgBuffer *bytes.Buffer) (pngData, error){
 	chunk := pngData{}
 
 	//skip png header
@@ -73,9 +114,12 @@ func (ap *APNGModel) GetPNGChunk(imgBuffer *bytes.Buffer) (pngData){
 	for {
 		tmp := make([]byte, 8)
 		_, err := io.ReadFull(imgBuffer, tmp[:8])
-		if err != nil{
-			fmt.Println("Error : ", err)
-			break
+		if err != nil {
+			if err != io.EOF{
+				return chunk, err
+			} else{
+				break
+			}
 		}
 
 		length := binary.BigEndian.Uint32(tmp[:4])
@@ -91,15 +135,16 @@ func (ap *APNGModel) GetPNGChunk(imgBuffer *bytes.Buffer) (pngData){
 			chunk.idat = append(chunk.idat, tmpVal...)
 			tmpVal = nil
 		default:
-			fmt.Println("Found ", string(tmp[4:8]))
+			// do nothing, currently the tag is ignored
 		}
 
 		//skip crc
 		imgBuffer.Next(4)
 	}
 
-	return chunk
+	return chunk, nil
 }
+
 
 func (ap *APNGModel) appendChunk(chunk []byte, header string, toChunk *[]byte){
 	chunkLe := make([]byte, 4)
@@ -115,15 +160,18 @@ func (ap *APNGModel) appendChunk(chunk []byte, header string, toChunk *[]byte){
 	*toChunk = append(*toChunk, chunkTagVal...)
 }
 
+
 func (ap *APNGModel) writePNGHeader(){
 	ap.buffer = append(ap.buffer, 0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
 }
 
-func (ap *APNGModel) AppendIHDR(chunk pngData){
+
+func (ap *APNGModel) appendIHDR(chunk pngData){
 	ap.appendChunk(chunk.ihdr, "IHDR", &ap.buffer)
 }
 
-func (ap *APNGModel) AppendacTL(img image.Image){
+
+func (ap *APNGModel) appendacTL(img image.Image){
 	tmpBuffer := []byte{}
 
 	//number of frames in the animation
@@ -139,7 +187,8 @@ func (ap *APNGModel) AppendacTL(img image.Image){
 	ap.appendChunk(tmpBuffer, "acTL", &ap.buffer)
 }
 
-func (ap *APNGModel) AppendfcTL(seqNb *int, img image.Image, delay int){
+
+func (ap *APNGModel) appendfcTL(seqNb *int, img image.Image, delay int){
 
 	//sequence value
 	fcTLValue := make([]byte, 4)
@@ -167,11 +216,13 @@ func (ap *APNGModel) AppendfcTL(seqNb *int, img image.Image, delay int){
 	*seqNb++
 }
 
-func (ap *APNGModel) AppendIDAT(chunk pngData){
+
+func (ap *APNGModel) appendIDAT(chunk pngData){
 	ap.appendChunk(chunk.idat, "IDAT", &ap.buffer)
 }
 
-func (ap *APNGModel) AppendfDAT(seqNb *int, chunk pngData){
+
+func (ap *APNGModel) appendfDAT(seqNb *int, chunk pngData){
 
 	//sequence value
 	fDatValue := make([]byte, 4)
@@ -185,35 +236,59 @@ func (ap *APNGModel) AppendfDAT(seqNb *int, chunk pngData){
 	*seqNb++
 }
 
-func (ap *APNGModel) WriteIENDHeader(){
+
+func (ap *APNGModel) writeIENDHeader(){
 	empty := make([]byte,0)
 	ap.appendChunk(empty, "IEND", &ap.buffer)
 }
 
-func (ap *APNGModel) Encode(){
+/******************************************************
+	Encode
+
+	Encode the images previously appended into an
+	apng image
+*******************************************************/
+func (ap *APNGModel) Encode() error {
+	if len(ap.images) != len(ap.delays){
+		return errors.New("Number of delays doesn't match number of images")
+	}
+
 	seqNb := 0
 	for index, img := range ap.images{
 		curImgBuffer := new(bytes.Buffer)
 		if err := png.Encode(curImgBuffer, img); err != nil{
 			fmt.Println(err)
-			return
+			return err
 		}
-		curPngChunk := ap.GetPNGChunk(curImgBuffer)
-		if(index == 0){
-			ap.writePNGHeader()
-			ap.AppendIHDR(curPngChunk)
-			ap.AppendacTL(img)
-			ap.AppendfcTL(&seqNb, img, ap.delays[index])
-			ap.AppendIDAT(curPngChunk)
-		}else{
-			ap.AppendfcTL(&seqNb, img, ap.delays[index])
-			ap.AppendfDAT(&seqNb, curPngChunk)
+		if curPngChunk, err := ap.getPNGChunk(curImgBuffer); err != nil{
+			return err
+		} else{
+			if(index == 0){
+				ap.writePNGHeader()
+				ap.appendIHDR(curPngChunk)
+				ap.appendacTL(img)
+				ap.appendfcTL(&seqNb, img, ap.delays[index])
+				ap.appendIDAT(curPngChunk)
+			}else{
+				ap.appendfcTL(&seqNb, img, ap.delays[index])
+				ap.appendfDAT(&seqNb, curPngChunk)
+			}	
 		}
 	}
-	ap.WriteIENDHeader()
+	ap.writeIENDHeader()
+
+	return nil
 }
 
-func (ap *APNGModel) SavePNGData(path string){
+
+/******************************************************
+	SavePNGData
+
+	param path    String of path of where to save the 
+			      file, along with the filename
+	return error
+*******************************************************/
+func (ap *APNGModel) SavePNGData(path string) error {
 
 	f, _ := os.Create(path)
 
@@ -221,7 +296,10 @@ func (ap *APNGModel) SavePNGData(path string){
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	return err
 }
+
 
 /******************************************************
                     byte manipulation
