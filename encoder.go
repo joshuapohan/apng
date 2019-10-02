@@ -14,7 +14,7 @@ import (
 
 
 /******************************************************
-				   apng structure
+                     apng structure
 	
 	Author : Joshua Pohan
 
