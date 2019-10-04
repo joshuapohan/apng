@@ -255,8 +255,13 @@ func (ap *APNGModel) Encode() error {
 
 	seqNb := 0
 	for index, img := range ap.images{
+		pngEnc := &png.Encoder{}
+		
+		pngEnc.CompressionLevel = png.BestCompression
+
 		curImgBuffer := new(bytes.Buffer)
-		if err := png.Encode(curImgBuffer, img); err != nil{
+
+		if err := pngEnc.Encode(curImgBuffer, img); err != nil{
 			fmt.Println(err)
 			return err
 		}
