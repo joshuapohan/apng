@@ -1,21 +1,20 @@
 package apng
 
 import (
-	"fmt"
-	"os"
 	"bytes"
-	"io"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"hash/crc32"
 	"image"
 	"image/png"
-	"errors"
+	"io"
+	"os"
 )
-
 
 /******************************************************
                      apng structure
-	
+
 	Author : Joshua Pohan
 
 	Example of usage :
@@ -37,29 +36,28 @@ import (
 
 *******************************************************/
 
-type pngData struct{
+type pngData struct {
 	ihdr []byte
 	idat []byte
 }
 
-type APNGModel struct{
+type APNGModel struct {
 	images []image.Image
 	chunks []pngData
 	delays []int
 	buffer []byte
 }
 
-func (ap APNGModel) PrintPNGChunks(){
-	for _, png := range ap.chunks  {
+func (ap APNGModel) PrintPNGChunks() {
+	for _, png := range ap.chunks {
 		fmt.Println("IHDR")
 		fmt.Println(png.ihdr)
 		fmt.Println("IDAT")
 		fmt.Println(png.idat)
-	}	
+	}
 }
 
-
-func (ap APNGModel) LogPNGChunks(){
+func (ap APNGModel) LogPNGChunks() {
 
 	f, _ := os.Create("log.txt")
 
@@ -70,9 +68,8 @@ func (ap APNGModel) LogPNGChunks(){
 		f.Write([]byte("IDAT\n"))
 		f.Write(png.idat)
 		f.Write([]byte("\n"))
-	}	
+	}
 }
-
 
 /******************************************************
 	AppendImage
@@ -84,14 +81,33 @@ func (ap APNGModel) LogPNGChunks(){
 	return error
 *******************************************************/
 func (ap *APNGModel) AppendImage(r io.Reader) error {
-	if curPng, err := png.Decode(r); err != nil{
+	if curPng, err := png.Decode(r); err != nil {
 		return err
-	} else{
+	} else {
 		ap.images = append(ap.images, curPng)
-		return nil	
-	}	
+		return nil
+	}
 }
 
+/******************************************************
+	AppendBytes
+
+	Adds file image to the apng struct, uses png package
+	to decode the image, takes byte slice as input
+
+	param b Byte slice to convert to image and append
+	return error
+*******************************************************/
+func (ap *APNGModel) AppendBytes(b []byte) error {
+	r := bytes.NewReader(b)
+
+	if curPng, err := png.Decode(r); err != nil {
+		return err
+	} else {
+		ap.images = append(ap.images, curPng)
+		return nil
+	}
+}
 
 /******************************************************
 	AppendDelay
@@ -100,12 +116,11 @@ func (ap *APNGModel) AppendImage(r io.Reader) error {
 
 	param delay The time delay(ms) between each images
 *******************************************************/
-func (ap *APNGModel) AppendDelay(delay int){
+func (ap *APNGModel) AppendDelay(delay int) {
 	ap.delays = append(ap.delays, delay)
 }
 
-
-func (ap *APNGModel) getPNGChunk(imgBuffer *bytes.Buffer) (pngData, error){
+func (ap *APNGModel) getPNGChunk(imgBuffer *bytes.Buffer) (pngData, error) {
 	chunk := pngData{}
 
 	//skip png header
@@ -115,19 +130,19 @@ func (ap *APNGModel) getPNGChunk(imgBuffer *bytes.Buffer) (pngData, error){
 		tmp := make([]byte, 8)
 		_, err := io.ReadFull(imgBuffer, tmp[:8])
 		if err != nil {
-			if err != io.EOF{
+			if err != io.EOF {
 				return chunk, err
-			} else{
+			} else {
 				break
 			}
 		}
 
 		length := binary.BigEndian.Uint32(tmp[:4])
-	
+
 		tmpVal := make([]byte, length)
 		io.ReadFull(imgBuffer, tmpVal)
 
-		switch string(tmp[4:8]){
+		switch string(tmp[4:8]) {
 		case "IHDR":
 			chunk.ihdr = make([]byte, length)
 			copy(chunk.ihdr, tmpVal)
@@ -145,10 +160,9 @@ func (ap *APNGModel) getPNGChunk(imgBuffer *bytes.Buffer) (pngData, error){
 	return chunk, nil
 }
 
-
-func (ap *APNGModel) appendChunk(chunk []byte, header string, toChunk *[]byte){
+func (ap *APNGModel) appendChunk(chunk []byte, header string, toChunk *[]byte) {
 	chunkLe := make([]byte, 4)
-	chunkTagVal := make([]byte,0, len(chunk) + 8)
+	chunkTagVal := make([]byte, 0, len(chunk)+8)
 
 	writeUint32(chunkLe, uint32(len(chunk)))
 
@@ -160,18 +174,15 @@ func (ap *APNGModel) appendChunk(chunk []byte, header string, toChunk *[]byte){
 	*toChunk = append(*toChunk, chunkTagVal...)
 }
 
-
-func (ap *APNGModel) writePNGHeader(){
-	ap.buffer = append(ap.buffer, 0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A)
+func (ap *APNGModel) writePNGHeader() {
+	ap.buffer = append(ap.buffer, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
 }
 
-
-func (ap *APNGModel) appendIHDR(chunk pngData){
+func (ap *APNGModel) appendIHDR(chunk pngData) {
 	ap.appendChunk(chunk.ihdr, "IHDR", &ap.buffer)
 }
 
-
-func (ap *APNGModel) appendacTL(img image.Image){
+func (ap *APNGModel) appendacTL(img image.Image) {
 	tmpBuffer := []byte{}
 
 	//number of frames in the animation
@@ -187,16 +198,15 @@ func (ap *APNGModel) appendacTL(img image.Image){
 	ap.appendChunk(tmpBuffer, "acTL", &ap.buffer)
 }
 
-
-func (ap *APNGModel) appendfcTL(seqNb *int, img image.Image, delay int){
+func (ap *APNGModel) appendfcTL(seqNb *int, img image.Image, delay int) {
 
 	//sequence value
 	fcTLValue := make([]byte, 4)
 	writeUint32(fcTLValue, uint32(*seqNb))
 	//width
-	appendUint32(&fcTLValue, uint32(img.Bounds().Max.X - img.Bounds().Min.X))
+	appendUint32(&fcTLValue, uint32(img.Bounds().Max.X-img.Bounds().Min.X))
 	//height
-	appendUint32(&fcTLValue, uint32(img.Bounds().Max.Y - img.Bounds().Min.Y))
+	appendUint32(&fcTLValue, uint32(img.Bounds().Max.Y-img.Bounds().Min.Y))
 	//x_offset
 	appendUint32(&fcTLValue, uint32(img.Bounds().Min.X))
 	//y_offset
@@ -209,20 +219,18 @@ func (ap *APNGModel) appendfcTL(seqNb *int, img image.Image, delay int){
 	appendUint8(&fcTLValue, uint8(0))
 	//blend_op
 	appendUint8(&fcTLValue, uint8(0))
-	
+
 	ap.appendChunk(fcTLValue, "fcTL", &ap.buffer)
 
 	//increment sequence number for animation chunk
 	*seqNb++
 }
 
-
-func (ap *APNGModel) appendIDAT(chunk pngData){
+func (ap *APNGModel) appendIDAT(chunk pngData) {
 	ap.appendChunk(chunk.idat, "IDAT", &ap.buffer)
 }
 
-
-func (ap *APNGModel) appendfDAT(seqNb *int, chunk pngData){
+func (ap *APNGModel) appendfDAT(seqNb *int, chunk pngData) {
 
 	//sequence value
 	fDatValue := make([]byte, 4)
@@ -236,9 +244,8 @@ func (ap *APNGModel) appendfDAT(seqNb *int, chunk pngData){
 	*seqNb++
 }
 
-
-func (ap *APNGModel) writeIENDHeader(){
-	empty := make([]byte,0)
+func (ap *APNGModel) writeIENDHeader() {
+	empty := make([]byte, 0)
 	ap.appendChunk(empty, "IEND", &ap.buffer)
 }
 
@@ -249,35 +256,35 @@ func (ap *APNGModel) writeIENDHeader(){
 	apng image
 *******************************************************/
 func (ap *APNGModel) Encode() error {
-	if len(ap.images) != len(ap.delays){
+	if len(ap.images) != len(ap.delays) {
 		return errors.New("Number of delays doesn't match number of images")
 	}
 
 	seqNb := 0
-	for index, img := range ap.images{
+	for index, img := range ap.images {
 		pngEnc := &png.Encoder{}
-		
-		pngEnc.CompressionLevel = png.BestCompression
+
+		//pngEnc.CompressionLevel = png.BestCompression
 
 		curImgBuffer := new(bytes.Buffer)
 
-		if err := pngEnc.Encode(curImgBuffer, img); err != nil{
+		if err := pngEnc.Encode(curImgBuffer, img); err != nil {
 			fmt.Println(err)
 			return err
 		}
-		if curPngChunk, err := ap.getPNGChunk(curImgBuffer); err != nil{
+		if curPngChunk, err := ap.getPNGChunk(curImgBuffer); err != nil {
 			return err
-		} else{
-			if(index == 0){
+		} else {
+			if index == 0 {
 				ap.writePNGHeader()
 				ap.appendIHDR(curPngChunk)
 				ap.appendacTL(img)
 				ap.appendfcTL(&seqNb, img, ap.delays[index])
 				ap.appendIDAT(curPngChunk)
-			}else{
+			} else {
 				ap.appendfcTL(&seqNb, img, ap.delays[index])
 				ap.appendfDAT(&seqNb, curPngChunk)
-			}	
+			}
 		}
 	}
 	ap.writeIENDHeader()
@@ -285,11 +292,10 @@ func (ap *APNGModel) Encode() error {
 	return nil
 }
 
-
 /******************************************************
 	SavePNGData
 
-	param path    String of path of where to save the 
+	param path    String of path of where to save the
 			      file, along with the filename
 	return error
 *******************************************************/
@@ -305,23 +311,22 @@ func (ap *APNGModel) SavePNGData(path string) error {
 	return err
 }
 
-
 /******************************************************
                     byte manipulation
 *******************************************************/
-func appendUint8(b *[]uint8, u uint8){
+func appendUint8(b *[]uint8, u uint8) {
 	tmp := make([]byte, 1)
 	writeUint8(tmp, u)
 	*b = append(*b, tmp...)
 }
 
-func appendUint16(b *[]uint8, u uint16){
+func appendUint16(b *[]uint8, u uint16) {
 	tmp := make([]byte, 2)
 	writeUint16(tmp, u)
 	*b = append(*b, tmp...)
 }
 
-func appendUint32(b *[]uint8, u uint32){
+func appendUint32(b *[]uint8, u uint32) {
 	tmp := make([]byte, 4)
 	writeUint32(tmp, u)
 	*b = append(*b, tmp...)
@@ -343,7 +348,7 @@ func writeUint32(b []uint8, u uint32) {
 	b[3] = uint8(u)
 }
 
-func writeCRC32(data *[]byte){
+func writeCRC32(data *[]byte) {
 	crcBytes := make([]byte, 4)
 	crc := crc32.NewIEEE()
 	crc.Write(*data)
